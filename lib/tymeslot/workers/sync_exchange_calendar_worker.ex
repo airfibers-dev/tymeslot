@@ -179,7 +179,6 @@ defmodule Tymeslot.Workers.SyncExchangeCalendarWorker do
   alias Tymeslot.Integrations.Calendar.Exchange.ItemCache
   alias Tymeslot.Integrations.Calendar.Exchange.Provider
   alias Tymeslot.Integrations.Calendar.InvalidEventReport
-  alias Tymeslot.Integrations.Calendar.ProviderConfig
   alias Tymeslot.Integrations.Calendar.Sync
   alias Tymeslot.Integrations.Calendar.SyncBroadcast
   alias Tymeslot.Integrations.CalendarManagement
@@ -480,11 +479,16 @@ defmodule Tymeslot.Workers.SyncExchangeCalendarWorker do
     :ok
   end
 
+  # Exchange-only window: the FindItem CalendarView is capped, so a narrow
+  # window keeps current events from being crowded out by old history.
+  @exchange_past_days 30
+  @exchange_future_days 180
+
   defp window do
     now = DateTime.utc_now()
 
-    {DateTime.add(now, -ProviderConfig.sync_window_past_days(), :day),
-     DateTime.add(now, ProviderConfig.sync_window_future_days(), :day)}
+    {DateTime.add(now, -@exchange_past_days, :day),
+     DateTime.add(now, @exchange_future_days, :day)}
   end
 
   # The guarded refusal gets its own sentence per half, because the two say
