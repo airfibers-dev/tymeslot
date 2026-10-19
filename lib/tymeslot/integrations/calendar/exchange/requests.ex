@@ -94,7 +94,7 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.Requests do
     """
     <m:FindItem Traversal="Shallow">
       <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
-      <m:CalendarView MaxEntriesReturned="500" StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
+      <m:CalendarView MaxEntriesReturned="1000" StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
       <m:ParentFolderIds>#{folder_element(folder)}</m:ParentFolderIds>
     </m:FindItem>
     """
