@@ -57,8 +57,11 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
 
   @doc """
   Generates an ICS attachment that cancels an existing event
-  (`METHOD:PUBLISH` + `STATUS:CANCELLED`). We deliberately avoid
-  `METHOD:CANCEL` here — see the note on `render_vcalendar/3`.
+  (`METHOD:CANCEL` + `STATUS:CANCELLED`).
+
+  CUSTOM PATCH (hostfix7): upstream sends `METHOD:PUBLISH` here; this fork
+  sends a real iTIP CANCEL so Outlook/Exchange remove the event from the
+  recipient's calendar. See the note on `render_vcalendar/3`.
 
   The `sequence` should be the next value after the last sent invitation so
   calendar clients recognise the cancellation as more recent than the event
@@ -79,12 +82,12 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
     ics_content = generate_ics_with(meeting_details, method, sequence, locale)
 
     # Bare `text/calendar`, no inline params. Swoosh splits the attachment
-    # content_type on "/", so a value like "text/calendar; method=PUBLISH"
+    # content_type on "/", so a value like "text/calendar; method=REQUEST"
     # lands the params inside the subtype and the MIME encoder emits an
     # ambiguous Content-Type that strict gateways defer (Proxmox Mail Gateway
-    # since PSA-2026-00005-1). The method is already carried in the body
-    # (METHOD:PUBLISH) and the part is base64-encoded, so a charset param is
-    # moot on the wire.
+    # since PSA-2026-00005-1). The method is carried in the body
+    # (METHOD:REQUEST / METHOD:CANCEL) and the part is base64-encoded, so a
+    # charset param is moot on the wire.
     %Swoosh.Attachment{
       filename: filename,
       content_type: "text/calendar",
@@ -131,19 +134,22 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
     end
   end
 
-  # Tymeslot emails always advertise METHOD:PUBLISH (not REQUEST/CANCEL). The
-  # organiser's calendar is already updated via the CalDAV/OAuth write path and
-  # attendee RSVP is handled by booking URLs in the email body — iTIP on the
-  # wire would cause recipient-side mail servers (Zimbra, Nextcloud/Sabre,
-  # Apple iCloud Mail) to auto-import the attachment and emit extra
-  # notifications. See issue #41.
+  # CUSTOM PATCH (hostfix7): this fork sends METHOD:REQUEST for invitations and
+  # updates and METHOD:CANCEL for cancellations. Upstream always advertises
+  # METHOD:PUBLISH (issue #41: iTIP on the wire makes Zimbra, Nextcloud/Sabre
+  # and iCloud Mail auto-import the attachment and emit extra notifications).
+  # Here the bookers are on Exchange/Outlook/Gmail and need an actionable
+  # invite with Accept/Decline and automatic calendar placement.
   #
-  # `SCHEDULE-AGENT=CLIENT` on ORGANIZER/ATTENDEE is defence-in-depth per
-  # RFC 6638 §7.1 for the same reason.
+  # `SCHEDULE-AGENT=CLIENT` is removed from ORGANIZER/ATTENDEE. ORGANIZER stays
+  # the real organiser, so RSVP replies go to them. The ATTENDEE carries
+  # PARTSTAT=NEEDS-ACTION;RSVP=TRUE so the client shows the response buttons.
+  #
+  # `generate_ics/2` (method :none) emits no METHOD line, as before.
   defp render_vcalendar(event, method, sequence) do
-    attendee_line = if event.attendee, do: "ATTENDEE;#{event.attendee}\n", else: ""
+    attendee_line = if event.attendee, do: "ATTENDEE#{event.attendee}\n", else: ""
     sequence_line = if is_integer(sequence), do: "SEQUENCE:#{sequence}\n", else: ""
-    method_line = if method == :none, do: "", else: "METHOD:PUBLISH\n"
+    method_line = method_line(method)
     status = status_for(method, event.status)
     lang = language_param()
     conference_line = build_conference_line(event.conference)
@@ -165,12 +171,16 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
     #{sequence_line}SUMMARY#{tag_language(summary_text, lang)}:#{summary_text}
     DESCRIPTION#{tag_language(description_text, lang)}:#{description_text}
     LOCATION#{tag_language(location_text, lang)}:#{location_text}
-    #{conference_line}ORGANIZER;#{event.organizer}
+    #{conference_line}ORGANIZER#{event.organizer}
     #{attendee_line}STATUS:#{status}
     END:VEVENT
     END:VCALENDAR
     """)
   end
+
+  defp method_line(:request), do: "METHOD:REQUEST\n"
+  defp method_line(:cancel), do: "METHOD:CANCEL\n"
+  defp method_line(_none), do: ""
 
   # RFC 7986 §5.11 — `CONFERENCE` advertises an online-meeting access URI so
   # clients can render a native "Join" affordance. We keep `LOCATION` and the
@@ -274,6 +284,9 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
   defp status_for(:cancel, _status), do: "CANCELLED"
   defp status_for(_method, status), do: status
 
+  # CUSTOM PATCH (hostfix7): no SCHEDULE-AGENT=CLIENT. Returns the parameter
+  # list plus value, starting with ";" (or ":" when there is no CN), so the
+  # caller writes "ORGANIZER" directly in front of it.
   defp format_organizer(meeting_details) do
     organizer_name = Map.get(meeting_details, :organizer_name)
 
@@ -284,16 +297,19 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
         Application.get_env(:tymeslot, :email)[:from_email]
       )
 
-    "SCHEDULE-AGENT=CLIENT#{cn_param(organizer_name)}:mailto:#{organizer_email}"
+    "#{cn_param(organizer_name)}:mailto:#{organizer_email}"
   end
 
+  # CUSTOM PATCH (hostfix7): actionable attendee. No SCHEDULE-AGENT=CLIENT;
+  # PARTSTAT=NEEDS-ACTION and RSVP=TRUE make Outlook/Gmail show Accept/Decline.
   defp format_attendees(meeting_details) do
     attendee_email = Map.get(meeting_details, :attendee_email)
 
     case attendee_email do
       email when is_binary(email) and email != "" ->
         attendee_name = Map.get(meeting_details, :attendee_name)
-        "SCHEDULE-AGENT=CLIENT#{cn_param(attendee_name)}:mailto:#{email}"
+
+        ";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE#{cn_param(attendee_name)}:mailto:#{email}"
 
       _other ->
         nil
