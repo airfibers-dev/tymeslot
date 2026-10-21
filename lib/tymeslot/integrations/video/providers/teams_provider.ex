@@ -121,7 +121,7 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider do
          {:ok, window} <- Payload.event_window(config),
          {:ok, token} <- get_access_token(config) do
       :patch
-      |> graph_request(token, event_path(room_id), Payload.event_fields(window))
+      |> graph_request(token, meeting_path(room_id), Payload.meeting_fields(window))
       |> handle_room_write(config)
     end
   end
@@ -136,7 +136,7 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider do
     with {:ok, :valid} <- validate_teams_scope(config),
          {:ok, token} <- get_access_token(config) do
       :delete
-      |> graph_request(token, event_path(room_id), nil)
+      |> graph_request(token, meeting_path(room_id), nil)
       |> handle_room_write(config)
     end
   end
@@ -266,8 +266,8 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider do
 
   defp validate_teams_scope(config) do
     stored_scope = Map.get(config, :oauth_scope) || ""
-    # Calendars.ReadWrite is a valid scope for creating Teams meetings via calendar events
-    required_scopes = ["Calendars.ReadWrite"]
+    # OnlineMeetings.ReadWrite is required to create Teams meetings via /me/onlineMeetings
+    required_scopes = ["OnlineMeetings.ReadWrite"]
     downcased_scope = String.downcase(stored_scope)
 
     has_required_scope =
@@ -324,10 +324,33 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider do
   defp create_scheduled_meeting(token, config) do
     with {:ok, window} <- Payload.event_window(config) do
       :post
-      |> graph_request(token, "/me/events", Payload.new_event(window, config))
-      |> handle_room_event(token, config, :own_event)
+      |> graph_request(token, "/me/onlineMeetings", Payload.new_online_meeting(window))
+      |> handle_online_meeting(config)
     end
   end
+
+  defp handle_online_meeting({:ok, %Req.Response{status: status, body: body}}, _config)
+       when status in [200, 201] do
+    with {:ok, meeting} <- decode_body(body) do
+      case Payload.meeting_join_url(meeting) do
+        nil ->
+          {:error, :video_meeting_not_enabled}
+
+        url ->
+          {:ok,
+           %{
+             "id" => meeting["id"],
+             "joinUrl" => url,
+             "joinWebUrl" => url,
+             "videoTeleconferenceId" => meeting["videoTeleconferenceId"],
+             "passcode" => nil,
+             "audioConferencing" => meeting["audioConferencing"]
+           }}
+      end
+    end
+  end
+
+  defp handle_online_meeting(response, config), do: handle_failed_write(response, config)
 
   # The booking's own calendar event, made into the Teams meeting, so the
   # organiser's calendar holds one entry for the booking rather than two.
@@ -462,6 +485,9 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider do
   # Graph ids are base64-like and may carry `/`, `+` or `=`, which must not
   # reach the path unescaped.
   defp event_path(event_id), do: "/me/events/#{URI.encode(event_id, &URI.char_unreserved?/1)}"
+
+  defp meeting_path(meeting_id),
+    do: "/me/onlineMeetings/#{URI.encode(meeting_id, &URI.char_unreserved?/1)}"
 
   defp graph_headers(token) do
     [

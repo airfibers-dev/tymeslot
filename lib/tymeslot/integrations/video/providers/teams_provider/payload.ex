@@ -97,6 +97,30 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider.Payload do
   def join_url(event) when is_map(event),
     do: get_in(event, ["onlineMeeting", "joinUrl"]) || event["onlineMeetingUrl"]
 
+  @doc "The body of a new standalone online meeting (POST /me/onlineMeetings)."
+  @spec new_online_meeting(window()) :: map()
+  def new_online_meeting(window) do
+    window
+    |> Map.update!(:subject, &(&1 || @fallback_subject))
+    |> meeting_fields()
+  end
+
+  @doc "Title and times of an online meeting; a window with no title keeps the title."
+  @spec meeting_fields(window()) :: map()
+  def meeting_fields(%{subject: subject, start_time: start_time, end_time: end_time}) do
+    times = %{
+      startDateTime: DateTime.to_iso8601(start_time),
+      endDateTime: DateTime.to_iso8601(end_time)
+    }
+
+    if subject, do: Map.put(times, :subject, subject), else: times
+  end
+
+  @doc "The join link on an onlineMeeting resource, or nil."
+  @spec meeting_join_url(map()) :: String.t() | nil
+  def meeting_join_url(meeting) when is_map(meeting),
+    do: meeting["joinWebUrl"] || meeting["joinUrl"]
+
   defp to_datetime(%DateTime{} = datetime, _field),
     do: {:ok, DateTime.shift_zone!(datetime, "Etc/UTC")}
 

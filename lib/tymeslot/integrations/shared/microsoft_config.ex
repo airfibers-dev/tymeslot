@@ -18,6 +18,7 @@ defmodule Tymeslot.Integrations.Shared.MicrosoftConfig do
   # Outlook calendar and Teams both work through calendar events, so they
   # request the same scope; `email` puts the account's address in the id token.
   @scope "https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/User.Read offline_access openid profile email"
+  @scope_teams "https://graph.microsoft.com/OnlineMeetings.ReadWrite https://graph.microsoft.com/User.Read offline_access openid profile email"
 
   @doc "The client id; raises when it is not configured."
   @spec client_id!() :: String.t()
@@ -48,6 +49,9 @@ defmodule Tymeslot.Integrations.Shared.MicrosoftConfig do
   @doc "The scope Outlook calendar and Teams request."
   @spec scope() :: String.t()
   def scope, do: @scope
+  @doc "The scope Microsoft Teams requests."
+  @spec teams_scope() :: String.t()
+  def teams_scope, do: @scope_teams
 
   @doc """
   The static Tenant ID used by Microsoft to identify all personal/consumer accounts.

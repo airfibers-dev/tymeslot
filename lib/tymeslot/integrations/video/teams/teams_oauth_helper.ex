@@ -41,7 +41,7 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
       client_id: MicrosoftConfig.client_id!(),
       redirect_uri: redirect_uri,
       response_type: "code",
-      scope: MicrosoftConfig.scope(),
+      scope: MicrosoftConfig.teams_scope(),
       state: state,
       response_mode: "query",
       prompt: "select_account"
@@ -52,7 +52,7 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
     url =
       ProviderHelpers.build_authorization_url(MicrosoftConfig.authorize_url(), params, login_hint)
 
-    Logger.info("Generated Teams OAuth URL", scope: MicrosoftConfig.scope())
+    Logger.info("Generated Teams OAuth URL", scope: MicrosoftConfig.teams_scope())
     url
   end
 
@@ -82,7 +82,7 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
       tenant_id: id_claims.tid || profile["tenant_id"] || "common",
       provider_account_id: id_claims.oid || profile["id"],
       provider_account_email: id_claims.email || profile["mail"],
-      scope: ensure_calendar_scope(tokens)
+      scope: ensure_teams_scope(tokens)
     })
   end
 
@@ -103,12 +103,12 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
     end
   end
 
-  defp ensure_calendar_scope(tokens) do
+  defp ensure_teams_scope(tokens) do
     returned_scope = tokens[:scope] || ""
 
-    if String.contains?(returned_scope, "Calendars.ReadWrite"),
+    if String.contains?(returned_scope, "OnlineMeetings.ReadWrite"),
       do: returned_scope,
-      else: MicrosoftConfig.scope()
+      else: MicrosoftConfig.teams_scope()
   end
 
   defp fetch_user_profile(token, opts) do
@@ -186,7 +186,7 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
     case TokenEndpoint.refresh_grant(
            MicrosoftConfig,
            refresh_token,
-           current_scope || MicrosoftConfig.scope(),
+           current_scope || MicrosoftConfig.teams_scope(),
            log_context: Keyword.merge(Keyword.get(opts, :log_context, []), provider: :teams)
          ) do
       {:ok, tokens} -> {:ok, tokens}
@@ -221,11 +221,11 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
           client_secret: client_secret,
           redirect_uri: redirect_uri,
           grant_type: "authorization_code",
-          scope: MicrosoftConfig.scope()
+          scope: MicrosoftConfig.teams_scope()
         })
 
       case TokenEndpoint.exchange_code(MicrosoftConfig.token_url(), body,
-             fallback_scope: MicrosoftConfig.scope(),
+             fallback_scope: MicrosoftConfig.teams_scope(),
              log_context: [provider: :teams]
            ) do
         {:ok, tokens} -> {:ok, tokens}
@@ -241,10 +241,10 @@ defmodule Tymeslot.Integrations.Video.Teams.TeamsOAuthHelper do
   defp verify_required_scopes(tokens) do
     returned_scope = tokens[:scope] || ""
 
-    if String.contains?(returned_scope, "Calendars.ReadWrite") do
+    if String.contains?(returned_scope, "OnlineMeetings.ReadWrite") do
       :ok
     else
-      Logger.error("Microsoft OAuth response missing required scope: Calendars.ReadWrite",
+      Logger.error("Microsoft OAuth response missing required scope: OnlineMeetings.ReadWrite",
         returned_scope: returned_scope
       )
 
