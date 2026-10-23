@@ -149,6 +149,15 @@ defmodule Tymeslot.MixProject do
       {:gen_smtp, "~> 1.2"},
       {:castore, "~> 1.0"},
       {:mjml, "~> 6.0"},
+      # Airfibers fork: mjml's precompiled NIF is fetched from GitHub Releases
+      # at compile time via Erlang's :httpc, which caps response headers at
+      # 10KB. GitHub's redirect response now carries a Content-Security-Policy
+      # header larger than that, so the fetch fails with
+      # `{:header_too_long, {:max, 10240}}`. rustler is the optional build-time
+      # dependency mjml needs to compile the NIF from source instead; see
+      # `config :rustler_precompiled, :force_build, mjml: true` in config.exs
+      # and the Rust toolchain install in Dockerfile.docker.
+      {:rustler, ">= 0.0.0", optional: true},
       {:nodejs, "~> 3.0"},
       {:oban, "~> 2.20"},
       {:error_tracker, "~> 0.9"},

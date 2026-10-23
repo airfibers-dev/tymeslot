@@ -729,5 +729,13 @@ config :tymeslot, :error_tracking_max_concurrent_reports, 10
 # config that imports this file) must list `vtt` again or drops it.
 config :mime, :types, %{"text/vtt" => ["vtt"]}
 
+# Airfibers fork: build mjml's NIF from source instead of downloading the
+# precompiled one from GitHub Releases. The download goes through Erlang's
+# :httpc, whose 10KB response-header cap is exceeded by GitHub's redirect
+# Content-Security-Policy header, failing the Docker build with
+# `{:header_too_long, {:max, 10240}}`. Requires the Rust toolchain (see
+# Dockerfile.docker) and the optional `:rustler` dependency in mix.exs.
+config :rustler_precompiled, :force_build, mjml: true
+
 # Import environment specific config
 import_config "#{config_env()}.exs"
