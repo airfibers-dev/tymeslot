@@ -28,16 +28,6 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Airfibers fork: Rust toolchain, needed to build mjml's NIF from source.
-# mjml's precompiled NIF is normally downloaded from GitHub Releases at
-# compile time, but that fetch goes through Erlang's :httpc, whose 10KB
-# response-header cap GitHub's redirect Content-Security-Policy header now
-# exceeds, failing the build with `{:header_too_long, {:max, 10240}}`.
-# `config :rustler_precompiled, :force_build, mjml: true` in config.exs makes
-# the build compile the NIF locally instead, which needs cargo.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
-
 # Set the working directory
 WORKDIR /app
 
@@ -58,6 +48,27 @@ RUN mix deps.get --only prod
 # below, never snuck in from the developer's local priv/static/assets/ directory.
 COPY . .
 RUN rm -rf priv/static/assets/
+
+# Airfibers fork: pre-seed the mjml NIF cache before compiling.
+#
+# mjml ships a precompiled NIF that rustler_precompiled downloads from GitHub
+# Releases at compile time. That download runs through Erlang's :httpc, which
+# caps response headers at 10KB; GitHub's redirect response now carries a
+# Content-Security-Policy header larger than that, so the fetch fails with
+# `{:error, {:header_too_long, {:max, 10240}}}` and the build dies. curl has no
+# such limit, so fetch the artifact here and drop it where rustler_precompiled
+# looks first. It verifies the file against the checksum compiled into mjml
+# (sha256 442c88cf... in mjml's checksum-Elixir.Mjml.Native.exs), so a bad or
+# tampered download still fails the build rather than being used.
+#
+# This keeps the lockfile and dependency tree untouched: no rustler, no Rust
+# toolchain, no source build. Bump the version and checksum together with mjml.
+ENV RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH=/root/.cache/rustler_precompiled
+RUN mkdir -p "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs" && \
+    curl -fsSL --retry 5 --retry-delay 5 \
+        -o "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" \
+        "https://github.com/adoptoposs/mjml_nif/releases/download/v6.0.0/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" && \
+    echo "442c88cfe5e4f5d01698eaebbee4b2f9526ba60b9231ff43ea621edd66e2927c  $RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" | sha256sum -c -
 
 # Compile dependencies and application code
 RUN mix do deps.compile + compile
