@@ -356,6 +356,38 @@ defmodule Tymeslot.Meetings.CalendarEventSync do
     present_identifier?(meeting.provider_event_id) or external_id?(meeting.calendar_uid)
   end
 
+  # --- CUSTOM PATCH: skip the Exchange (EWS) write for Teams bookings --------
+  #
+  # True when a Teams invite from the cloud account already puts this booking
+  # on the organizer's calendar, so the Exchange (EWS) write would be a
+  # duplicate. Mirrors the lookup chain of
+  # `Tymeslot.Integrations.MeetingProvisioning.teams_room_placement/1`.
+  # Any lookup failure returns false, so we fall back to the normal write.
+  defp teams_invite_replaces_calendar_write?(
+         %{video_integration_id: vid_id, organizer_user_id: uid} = meeting
+       )
+       when is_integer(vid_id) and is_integer(uid) do
+    with {:ok, %{provider: "teams"}} <-
+           Tymeslot.Integrations.Video.fetch_integration_for_user(vid_id, uid),
+         {:ok, %{integration_id: cal_id}} <-
+           CalendarEvents.get_booking_integration_info(meeting),
+         {:ok, %{provider: "exchange"}} <-
+           Tymeslot.Integrations.Calendar.get_integration(cal_id, uid) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp teams_invite_replaces_calendar_write?(_meeting), do: false
+
+  # Skip only when no EWS event was ever written for this meeting, so
+  # meetings that already have a mapping keep updating and deleting normally.
+  defp skip_ews_write?(meeting),
+    do: not calendar_mapping?(meeting) and teams_invite_replaces_calendar_write?(meeting)
+
+  # --- END CUSTOM PATCH -------------------------------------------------------
+
   defp present_identifier?(identifier) when is_binary(identifier), do: byte_size(identifier) > 0
   defp present_identifier?(_identifier), do: false
 
@@ -370,9 +402,17 @@ defmodule Tymeslot.Meetings.CalendarEventSync do
   end
 
   defp update_or_create_calendar_event(meeting, event_data, attempt) do
-    case update_existing_event(meeting, event_data) do
-      {:error, :not_found} -> handle_missing_event(meeting.id, event_data, meeting, attempt)
-      result -> result
+    if skip_ews_write?(meeting) do
+      Logger.info("Teams invite covers this booking, skipping Exchange calendar update",
+        meeting_id: meeting.id
+      )
+
+      :ok
+    else
+      case update_existing_event(meeting, event_data) do
+        {:error, :not_found} -> handle_missing_event(meeting.id, event_data, meeting, attempt)
+        result -> result
+      end
     end
   end
 
@@ -447,22 +487,42 @@ defmodule Tymeslot.Meetings.CalendarEventSync do
   end
 
   defp delete_event_for_meeting(meeting, meeting_id) do
-    case CalendarEvents.delete_event(calendar_event_identifier(meeting), meeting) do
-      :ok ->
-        Logger.info("Calendar event deleted successfully", meeting_id: meeting_id)
-        :ok
+    if skip_ews_write?(meeting) do
+      Logger.info("No Exchange event was written for this meeting, nothing to delete",
+        meeting_id: meeting_id
+      )
 
-      {:error, :not_found} ->
-        # Event already deleted, consider it success
-        Logger.info("Calendar event already deleted", meeting_id: meeting_id)
-        :ok
+      :ok
+    else
+      case CalendarEvents.delete_event(calendar_event_identifier(meeting), meeting) do
+        :ok ->
+          Logger.info("Calendar event deleted successfully", meeting_id: meeting_id)
+          :ok
 
-      error ->
-        error
+        {:error, :not_found} ->
+          # Event already deleted, consider it success
+          Logger.info("Calendar event already deleted", meeting_id: meeting_id)
+          :ok
+
+        error ->
+          error
+      end
     end
   end
 
   defp create_event_for_meeting(meeting, meeting_id, attempt) do
+    if skip_ews_write?(meeting) do
+      Logger.info("Teams invite covers this booking, skipping Exchange calendar write",
+        meeting_id: meeting_id
+      )
+
+      :ok
+    else
+      do_create_event_for_meeting(meeting, meeting_id, attempt)
+    end
+  end
+
+  defp do_create_event_for_meeting(meeting, meeting_id, attempt) do
     Logger.info("Creating calendar event", meeting_id: meeting_id)
 
     event_data =
