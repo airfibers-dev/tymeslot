@@ -111,7 +111,7 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.Requests do
     """
     <m:FindItem Traversal="Shallow">
       <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
-      <m:CalendarView StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
+      <m:CalendarView MaxEntriesReturned="1000" StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
       <m:ParentFolderIds>#{folder_element(folder)}</m:ParentFolderIds>
     </m:FindItem>
     """
@@ -202,14 +202,14 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.Requests do
           <t:Bias>0</t:Bias>
           <t:Time>00:00:00</t:Time>
           <t:DayOrder>1</t:DayOrder>
-          <t:Month>1</t:Month>
+          <t:Month>11</t:Month>
           <t:DayOfWeek>Sunday</t:DayOfWeek>
         </t:StandardTime>
         <t:DaylightTime>
           <t:Bias>0</t:Bias>
           <t:Time>00:00:00</t:Time>
           <t:DayOrder>1</t:DayOrder>
-          <t:Month>1</t:Month>
+          <t:Month>3</t:Month>
           <t:DayOfWeek>Sunday</t:DayOfWeek>
         </t:DaylightTime>
       </t:TimeZone>
