@@ -22,10 +22,16 @@ defmodule Tymeslot.Integrations.Video.EventDetails do
           description: String.t() | nil,
           start_time: DateTime.t() | NaiveDateTime.t() | nil,
           end_time: DateTime.t() | NaiveDateTime.t() | nil,
-          attendees: [Attendee.t()]
+          attendees: [Attendee.t()],
+          host_email: String.t() | nil
         }
 
-  defstruct summary: nil, description: nil, start_time: nil, end_time: nil, attendees: []
+  defstruct summary: nil,
+            description: nil,
+            start_time: nil,
+            end_time: nil,
+            attendees: [],
+            host_email: nil
 
   @doc """
   Builds an `%EventDetails{}` from the LiveView `creating` assigns map used in
@@ -76,7 +82,8 @@ defmodule Tymeslot.Integrations.Video.EventDetails do
       description: meeting.description || "",
       start_time: meeting.start_time,
       end_time: meeting.end_time,
-      attendees: meeting_attendees(meeting)
+      attendees: meeting_attendees(meeting),
+      host_email: clean_email(meeting.organizer_email)
     }
   end
 
