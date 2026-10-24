@@ -349,10 +349,22 @@ defmodule Tymeslot.Meetings.CalendarEventSync do
   # duplicate. Mirrors the lookup chain of
   # `Tymeslot.Integrations.MeetingProvisioning.teams_room_placement/1`.
   # Any lookup failure returns false, so we fall back to the normal write.
+  #
+  # The room must actually exist (`video_room_id` set): the Teams invite is
+  # only in Exchange once the provider created the meeting. A booking whose
+  # room creation failed — no Teams licence, a tenant without online meetings,
+  # a provider outage — has no invite anywhere, and skipping the EWS write
+  # would leave the booking on no calendar at all. The organizer would then
+  # see a free slot, book over it, and the sync would read the missing event
+  # as an external deletion and auto-cancel the booking.
   defp teams_invite_replaces_calendar_write?(
-         %{video_integration_id: vid_id, organizer_user_id: uid} = meeting
+         %{
+           video_integration_id: vid_id,
+           organizer_user_id: uid,
+           video_room_id: room_id
+         } = meeting
        )
-       when is_integer(vid_id) and is_integer(uid) do
+       when is_integer(vid_id) and is_integer(uid) and is_binary(room_id) do
     with {:ok, %{provider: "teams"}} <-
            Tymeslot.Integrations.Video.fetch_integration_for_user(vid_id, uid),
          {:ok, %{integration_id: cal_id}} <-
@@ -369,6 +381,9 @@ defmodule Tymeslot.Meetings.CalendarEventSync do
 
   # Skip only when no EWS event was ever written for this meeting, so
   # meetings that already have a mapping keep updating and deleting normally.
+  # A meeting that gains a Teams room after its EWS event was written keeps
+  # that event: the Teams invite is an addition, not a replacement, and
+  # dropping the EWS write would strand the event with no owner.
   defp skip_ews_write?(meeting),
     do: not calendar_mapping?(meeting) and teams_invite_replaces_calendar_write?(meeting)
 
