@@ -63,12 +63,18 @@ RUN rm -rf priv/static/assets/
 #
 # This keeps the lockfile and dependency tree untouched: no rustler, no Rust
 # toolchain, no source build. Bump the version and checksum together with mjml.
+#
+# Note the file goes DIRECTLY in the cache path, with no `precompiled_nifs/`
+# subdirectory: when RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH is set,
+# rustler_precompiled's cache_dir/1 returns it as-is and skips the subdirectory
+# it would otherwise append. A file in a subdirectory is ignored and the
+# download is attempted anyway.
 ENV RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH=/root/.cache/rustler_precompiled
-RUN mkdir -p "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs" && \
+RUN mkdir -p "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH" && \
     curl -fsSL --retry 5 --retry-delay 5 \
-        -o "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" \
+        -o "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" \
         "https://github.com/adoptoposs/mjml_nif/releases/download/v6.0.0/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" && \
-    echo "442c88cfe5e4f5d01698eaebbee4b2f9526ba60b9231ff43ea621edd66e2927c  $RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/precompiled_nifs/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" | sha256sum -c -
+    echo "442c88cfe5e4f5d01698eaebbee4b2f9526ba60b9231ff43ea621edd66e2927c  $RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" | sha256sum -c -
 
 # Compile dependencies and application code
 RUN mix do deps.compile + compile
