@@ -76,8 +76,59 @@ RUN mkdir -p "$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH" && \
         "https://github.com/adoptoposs/mjml_nif/releases/download/v6.0.0/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" && \
     echo "442c88cfe5e4f5d01698eaebbee4b2f9526ba60b9231ff43ea621edd66e2927c  $RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/libmjml_nif-v6.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz" | sha256sum -c -
 
+# Airfibers fork: pre-seed the vix/libvips tarball before compiling.
+#
+# Same root cause as mjml above, different dependency. vix (pulled in by
+# :image) downloads sharp-libvips from GitHub Releases at compile time using
+# Erlang's :httpc, which caps response headers at 10KB, so it fails with
+# `{:error, {:header_too_long, {:max, 10240}}}`. vix has no cache directory to
+# seed: its c_src/Makefile runs build_scripts/precompiler.exs, which always
+# downloads. So fetch the tarball with curl and make the precompiler's
+# download/2 a no-op that returns the file already in place.
+#
+# The patch is applied to deps/vix AFTER `mix deps.get` and BEFORE
+# `mix deps.compile`, which is the only window where it takes effect. It fails
+# loudly if the expected source is not found, so a vix upgrade that changes
+# the script breaks the build instead of silently downloading again.
+#
+# Unlike mjml, vix does not verify a checksum, so the sha256 is pinned here to
+# keep the build reproducible. Bump the release tag, filename and checksum
+# together when vix moves.
+ENV VIX_LIBVIPS_TARBALL=sharp-libvips-linux-x64.tar.gz
+RUN mkdir -p /tmp/vix-libvips && \
+    curl -fsSL --retry 5 --retry-delay 5 \
+        -o "/tmp/vix-libvips/$VIX_LIBVIPS_TARBALL" \
+        "https://github.com/akash-akya/sharp-libvips/releases/download/v8.18.7-rc1/$VIX_LIBVIPS_TARBALL" && \
+    echo "9273ce56de05b0f5e896056fe36aeb31483db7ba8baa1f4dc65fd93e92d0589c  /tmp/vix-libvips/$VIX_LIBVIPS_TARBALL" | sha256sum -c -
+
+# Rewrite vix's download/2 so it copies the pre-fetched tarball instead of
+# fetching it. awk is used because the replacement spans several lines and
+# sed's \n handling differs between implementations. The grep asserts the
+# expected source line exists, so a vix upgrade that changes the script fails
+# the build instead of silently downloading again.
+RUN set -e; \
+    f=deps/vix/build_scripts/precompiler.exs; \
+    grep -qF '  def download(url, path) do' "$f"; \
+    awk '/^  def download\(url, path\) do$$/ { \
+            print "  def download(_url, path) do"; \
+            print "    # Airfibers fork: tarball pre-fetched by the Dockerfile with curl, because"; \
+            print "    # Erlang :httpc cannot follow GitHub redirects (headers exceed the 10KB cap)."; \
+            print "    File.mkdir_p!(Path.dirname(path))"; \
+            print "    File.cp!(System.fetch_env!(\"VIX_LIBVIPS_TARBALL_PATH\"), path)"; \
+            print "    {:ok, path}"; \
+            print "  end"; \
+            print ""; \
+            print "  defp download_orig(url, path) do"; \
+            next \
+         } \
+         { print }' "$f" > "$f.new"; \
+    mv "$f.new" "$f"; \
+    grep -qF '  defp download_orig(url, path) do' "$f"; \
+    echo "patched $f"
+
 # Compile dependencies and application code
-RUN mix do deps.compile + compile
+RUN VIX_LIBVIPS_TARBALL_PATH="/tmp/vix-libvips/$VIX_LIBVIPS_TARBALL" \
+    mix do deps.compile + compile
 
 # Install Tailwind and esbuild with retry mechanism
 RUN for i in 1 2 3 4 5; do \
