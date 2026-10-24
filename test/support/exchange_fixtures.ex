@@ -35,6 +35,34 @@ defmodule Tymeslot.ExchangeFixtures do
     response_envelope("FindItem", "<m:RootFolder><t:Items>#{items}</t:Items></m:RootFolder>")
   end
 
+  @doc """
+  A `FindItem` response as a real server states one: with the completeness
+  flag and the total it saw.
+
+  `last?` is `IncludesLastItemInRange` — `false` is the server saying the
+  answer was cut short by `MaxEntriesReturned` — and `total` is
+  `TotalItemsInView`, the count before that cut. Both are what the sync's
+  truncation diagnostics read.
+  """
+  @spec find_item_response([{String.t(), String.t()}], boolean(), non_neg_integer() | nil) ::
+          String.t()
+  def find_item_response(ids, last?, total) do
+    items =
+      Enum.map_join(ids, "\n", fn {id, change_key} ->
+        ~s(<t:CalendarItem><t:ItemId Id="#{id}" ChangeKey="#{change_key}"/></t:CalendarItem>)
+      end)
+
+    total_attr = if total, do: ~s( TotalItemsInView="#{total}"), else: ""
+
+    response_envelope(
+      "FindItem",
+      """
+      <m:RootFolder#{total_attr}><t:Items>#{items}</t:Items></m:RootFolder>
+            <m:IncludesLastItemInRange>#{last?}</m:IncludesLastItemInRange>
+      """
+    )
+  end
+
   @doc "A `FindItem` response over a range holding no events."
   @spec empty_find_item_response() :: String.t()
   def empty_find_item_response do

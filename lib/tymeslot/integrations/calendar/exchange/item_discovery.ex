@@ -31,6 +31,8 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.ItemDiscovery do
   # EWS namespace prefixes onto the spec and onto every subspec.
   import SweetXml, only: [sigil_x: 2]
 
+  require Logger
+
   alias Tymeslot.Integrations.Calendar.Exchange.Client
   alias Tymeslot.Integrations.Calendar.Exchange.EventNormaliser
   alias Tymeslot.Integrations.Calendar.Exchange.Requests
@@ -54,8 +56,44 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.ItemDiscovery do
   @spec item_ids(Soap.document()) :: {:ok, [id_pair()]} | {:error, Soap.failure()}
   def item_ids(doc) do
     with {:ok, messages} <- Soap.require_success(doc, "FindItemResponseMessage") do
-      {:ok, messages |> Enum.flat_map(&ids_in/1) |> Enum.reject(&is_nil/1)}
+      ids = messages |> Enum.flat_map(&ids_in/1) |> Enum.reject(&is_nil/1)
+      log_find_item_completeness(messages, length(ids))
+      {:ok, ids}
     end
+  end
+
+  # --- CUSTOM PATCH: FindItem truncation diagnostics --------------------------
+  #
+  # `FindItem` over a `CalendarView` answers at most `MaxEntriesReturned`
+  # items, ascending by start, and states whether it cut the answer short in
+  # `IncludesLastItemInRange`. Nothing acts on that attribute on this path —
+  # there is no paging — so a truncated window is silently short, which is
+  # exactly the shape of "the grid shows only a few days ahead". This logs the
+  # three numbers that make it visible: how many ids came back, what the
+  # server said about completeness, and the total it reported.
+  #
+  # Only counts and the server's own flag travel: no item id, subject or
+  # location is mailbox content this may carry.
+  defp log_find_item_completeness(messages, returned) do
+    last? = Enum.all?(messages, &(Soap.text(&1, ~x"./m:IncludesLastItemInRange/text()") != "false"))
+
+    total =
+      messages
+      |> Enum.map(&Soap.text(&1, ~x"./m:RootFolder/@TotalItemsInView"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Integer.parse/1)
+      |> Enum.flat_map(fn
+        {n, _rest} -> [n]
+        :error -> []
+      end)
+      |> Enum.max(fn -> nil end)
+
+    Logger.info("Exchange FindItem answered",
+      provider: :exchange,
+      returned_count: returned,
+      includes_last_item_in_range: last?,
+      total_items_in_view: total
+    )
   end
 
   @doc """

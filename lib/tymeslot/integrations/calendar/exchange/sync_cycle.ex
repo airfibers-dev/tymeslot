@@ -250,6 +250,19 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.SyncCycle do
     calendar_id = client.calendar_id
     context = ItemCache.item_context(integration, client)
 
+    # --- CUSTOM PATCH: effective request diagnostics -------------------------
+    # The bounds actually sent to `FindItem`, and the cap the request body
+    # carries, so a run can be matched against what the grid shows without
+    # reading the SOAP body back out of a log.
+    Logger.info("Exchange FindItem request",
+      provider: :exchange,
+      calendar_integration_id: integration.id,
+      provider_calendar_id: calendar_id,
+      request_start: DateTime.to_iso8601(from),
+      request_end: DateTime.to_iso8601(to),
+      max_entries_returned: Tymeslot.Integrations.Calendar.Exchange.Requests.max_entries_returned()
+    )
+
     with {:ok, items} <-
            Provider.list_calendar_items(client,
              start_time: from,
