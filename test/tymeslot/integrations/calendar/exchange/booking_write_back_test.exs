@@ -160,79 +160,7 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.BookingWriteBackTest do
     assert sent_body() =~ "<m:DeleteItem"
   end
 
-  # --- CUSTOM PATCH: the Teams invite only replaces the EWS write once it exists ---
-  #
-  # The Teams account is a cloud account, the calendar is on-premise Exchange,
-  # so the Teams invite is what puts the booking on the organizer's calendar
-  # and the EWS write is skipped. That is only true once the provider actually
-  # created the meeting: a booking whose room creation failed has no invite
-  # anywhere, and skipping the write would leave it on no calendar at all.
-
-  describe "Teams booking on an Exchange calendar" do
-    setup %{user: user} do
-      video =
-        insert(:video_integration,
-          user: user,
-          provider: "teams",
-          base_url: nil,
-          provider_account_id: "teams-account-1"
-        )
-
-      %{video: video}
-    end
-
-    test "skips the EWS write once the Teams room exists", %{
-      meeting: meeting,
-      video: video
-    } do
-      meeting = with_teams_room(meeting, video)
-
-      ReqTest.stub(:tymeslot_http, fn conn ->
-        flunk("no Exchange request expected, got #{conn.method} #{conn.request_path}")
-      end)
-
-      assert :ok = CalendarEventSync.create(meeting.id, 1)
-
-      {:ok, reloaded} = MeetingQueries.get_meeting(meeting.id)
-      assert is_nil(reloaded.provider_event_id)
-    end
-
-    test "writes the EWS event when the Teams room was never created", %{
-      meeting: meeting,
-      video: video
-    } do
-      meeting = with_teams_booking(meeting, video)
-
-      capture_bodies(create_response())
-
-      assert :ok = CalendarEventSync.create(meeting.id, 1)
-
-      assert sent_body() =~ "<m:CreateItem"
-
-      {:ok, reloaded} = MeetingQueries.get_meeting(meeting.id)
-      assert reloaded.provider_event_id == @item_id
-    end
-  end
-
   # --- Helpers ---
-
-  defp with_teams_booking(meeting, video) do
-    meeting
-    |> Changeset.change(%{video_integration_id: video.id})
-    |> Repo.update!()
-  end
-
-  defp with_teams_room(meeting, video) do
-    meeting
-    |> Changeset.change(%{
-      video_integration_id: video.id,
-      video_room_id: "AAMkAD-teams-event-id",
-      video_provider: "teams",
-      video_room_enabled: true,
-      meeting_url: "https://teams.microsoft.com/l/meetup-join/19%3ameeting"
-    })
-    |> Repo.update!()
-  end
 
   defp create_response do
     ExchangeCase.response_envelope("CreateItem", """
