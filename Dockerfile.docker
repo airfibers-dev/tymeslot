@@ -130,11 +130,49 @@ RUN set -e; \
 RUN VIX_LIBVIPS_TARBALL_PATH="/tmp/vix-libvips/$VIX_LIBVIPS_TARBALL" \
     mix do deps.compile + compile
 
-# Install Tailwind and esbuild with retry mechanism
-RUN for i in 1 2 3 4 5; do \
-        echo "Attempt $i: Installing tailwind and esbuild" && \
-        mix do tailwind.install + esbuild.install && break || sleep 5; \
-    done  
+# Airfibers fork: fetch the Tailwind and esbuild binaries with curl.
+#
+# Same root cause as mjml and vix above. `mix tailwind.install` and
+# `mix esbuild.install` download their executables through Erlang's :httpc,
+# which caps response headers at 10KB, so they fail against GitHub's and
+# npm's redirect responses with:
+#
+#     Couldn't fetch https://github.com/tailwindlabs/...: {true, {:error,
+#     {:header_too_long, {:max, 10240}}}}
+#
+# Both packages skip the download when the binary already exists at their
+# computed path, so fetching with curl and placing the files there is enough.
+# The paths are derived from the packages' own bin_path/0:
+#   tailwind 0.5.1: Path.join(Path.dirname(Mix.Project.build_path()),
+#                              "tailwind-linux-x64-4.3.3")
+#   esbuild 0.10.1: Path.join(Path.dirname(Mix.Project.build_path()),
+#                              "esbuild-linux-x64")
+# With MIX_ENV=prod, Mix.Project.build_path() is /app/_build/prod, so both
+# land in /app/_build. Versions track config/config.exs (:tailwind version
+# 4.3.3, :esbuild version 0.17.11); bump them together.
+#
+# esbuild is unpacked from the npm tarball rather than a release asset: that
+# is what esbuild's own installer does, and it avoids depending on a GitHub
+# release layout. Its sha256 is pinned here because esbuild verifies the
+# registry's integrity hash, not ours.
+ENV TAILWIND_VERSION=4.3.3 \
+    ESBUILD_VERSION=0.17.11
+RUN mkdir -p /app/_build && \
+    curl -fsSL --retry 5 --retry-delay 5 \
+        -o /app/_build/tailwind-linux-x64-$TAILWIND_VERSION \
+        "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TAILWIND_VERSION/tailwindcss-linux-x64" && \
+    echo "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a  /app/_build/tailwind-linux-x64-$TAILWIND_VERSION" | sha256sum -c - && \
+    chmod +x /app/_build/tailwind-linux-x64-$TAILWIND_VERSION && \
+    curl -fsSL --retry 5 --retry-delay 5 \
+        -o /tmp/esbuild.tgz \
+        "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-$ESBUILD_VERSION.tgz" && \
+    echo "20784512afbd6ad0c1e7c6a43b4aff71148a5452166c67f43b4983b3e7a9d3d5  /tmp/esbuild.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/esbuild.tgz -C /tmp && \
+    cp /tmp/package/bin/esbuild /app/_build/esbuild-linux-x64 && \
+    chmod +x /app/_build/esbuild-linux-x64 && \
+    rm -rf /tmp/esbuild.tgz /tmp/package && \
+    /app/_build/tailwind-linux-x64-$TAILWIND_VERSION --help | head -1 && \
+    /app/_build/esbuild-linux-x64 --version
 
 # Compile assets
 RUN mix assets.deploy
