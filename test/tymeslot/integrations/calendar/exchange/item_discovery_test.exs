@@ -28,6 +28,32 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.ItemDiscoveryTest do
       assert ItemDiscovery.item_ids(doc) == {:ok, []}
     end
 
+    test "logs the returned count and the server's completeness flag" do
+      {:ok, doc} =
+        Soap.parse(
+          ExchangeFixtures.find_item_response([{"item-1", "ck-1"}, {"item-2", "ck-2"}], false, 40)
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert ItemDiscovery.item_ids(doc) == {:ok, [{"item-1", "ck-1"}, {"item-2", "ck-2"}]}
+        end)
+
+      assert log =~ "Exchange FindItem answered"
+      assert log =~ "returned_count=2"
+      assert log =~ "includes_last_item_in_range=false"
+      assert log =~ "total_items_in_view=40"
+    end
+
+    test "reports a complete answer as complete" do
+      {:ok, doc} =
+        Soap.parse(ExchangeFixtures.find_item_response([{"item-1", "ck-1"}], true, 1))
+
+      log = ExUnit.CaptureLog.capture_log(fn -> ItemDiscovery.item_ids(doc) end)
+
+      assert log =~ "includes_last_item_in_range=true"
+    end
+
     test "drops an item id the server stated no Id attribute for" do
       # An id is what makes an item fetchable, so one without it cannot be put
       # in a `GetItem` batch: sending `<t:ItemId ChangeKey="ck-1"/>` faults the

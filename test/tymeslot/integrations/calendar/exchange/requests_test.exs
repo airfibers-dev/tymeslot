@@ -72,6 +72,14 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.RequestsTest do
       assert xml =~ ~s(<t:FolderId Id="AAABBB=="/>)
     end
 
+    test "states the cap it sends, and the accessor agrees with the request" do
+      xml = Requests.find_item(:calendar, @from, @to)
+      cap = Requests.max_entries_returned()
+
+      assert cap == 1000
+      assert xml =~ ~s(MaxEntriesReturned="#{cap}")
+    end
+
     test "renders the range in UTC whatever zone it arrives in" do
       berlin_from = DateTime.shift_zone!(@from, "Europe/Berlin")
       berlin_to = DateTime.shift_zone!(@to, "Europe/Berlin")

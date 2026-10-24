@@ -88,6 +88,11 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.Requests do
 
   @item_properties_xml Enum.map_join(@item_properties, &~s(<t:FieldURI FieldURI="#{&1}"/>))
 
+  # The cap `find_item/3` sends. EWS also enforces its own `FindCountLimit`
+  # (1000 by default) and answers the smaller of the two, so an answer of
+  # exactly this many items is a truncated answer, not a coincidence.
+  @max_entries_returned 1000
+
   @doc "Enumerates the mailbox's folders so calendars can be picked out."
   @spec find_folder() :: String.t()
   def find_folder do
@@ -111,11 +116,21 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.Requests do
     """
     <m:FindItem Traversal="Shallow">
       <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
-      <m:CalendarView MaxEntriesReturned="1000" StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
+      <m:CalendarView MaxEntriesReturned="#{@max_entries_returned}" StartDate="#{calendar_view_time(from)}" EndDate="#{calendar_view_time(to)}"/>
       <m:ParentFolderIds>#{folder_element(folder)}</m:ParentFolderIds>
     </m:FindItem>
     """
   end
+
+  @doc """
+  The `MaxEntriesReturned` this module sends with `FindItem`.
+
+  Exposed so a sync can log the cap it actually asked for rather than a
+  number copied into a log line, which would drift the moment the attribute
+  changes.
+  """
+  @spec max_entries_returned() :: pos_integer()
+  def max_entries_returned, do: @max_entries_returned
 
   @doc """
   Fetches the given items in one request.
