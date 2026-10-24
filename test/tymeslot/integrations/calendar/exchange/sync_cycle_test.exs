@@ -63,6 +63,39 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.SyncCycleTest do
              CalendarIntegrationQueries.get(integration.id)
   end
 
+  describe "the sync window" do
+    test "reads 30 days back and 180 forward, narrower than the shared window" do
+      now = ~U[2026-10-09 12:00:00Z]
+      {from, to} = SyncCycle.window(now)
+
+      assert DateTime.diff(now, from, :day) == 30
+      assert DateTime.diff(to, now, :day) == 180
+
+      # The shared window is what fills `FindItem`'s 1000-entry cap with
+      # history, so the Exchange one must stay inside it.
+      {shared_from, shared_to} = Tymeslot.Integrations.Calendar.Sync.window(now)
+      assert DateTime.compare(from, shared_from) == :gt
+      assert DateTime.compare(to, shared_to) == :lt
+    end
+
+    test "is the window the cycle actually reads", %{integration: integration} do
+      stub_full_sync()
+
+      assert :ok = SyncCycle.run(integration)
+
+      {from, to} = SyncCycle.window()
+      find_item = Enum.find(sent_requests(), &(&1 =~ "<m:FindItem"))
+
+      assert find_item =~ ~s(StartDate="#{ews_time(from)}")
+      assert find_item =~ ~s(EndDate="#{ews_time(to)}")
+    end
+  end
+
+  # `FindItem`'s `CalendarView` bounds are UTC ISO-8601, truncated to the
+  # second (see `Exchange.Requests.find_item/3`).
+  defp ews_time(datetime),
+    do: datetime |> DateTime.shift_zone!("Etc/UTC") |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
   describe "a refused availability read" do
     setup do
       test_pid = self()

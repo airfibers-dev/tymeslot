@@ -137,6 +137,7 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.SyncCycle do
 
   require Logger
 
+  alias Tymeslot.Clock
   alias Tymeslot.Infrastructure.Logging.LogFormat
   alias Tymeslot.Integrations.Calendar.CalendarIntegrationQueries
   alias Tymeslot.Integrations.Calendar.CalendarIntegrationSchema
@@ -168,10 +169,51 @@ defmodule Tymeslot.Integrations.Calendar.Exchange.SyncCycle do
     end
   end
 
+  # --- CUSTOM PATCH: Exchange-only sync window --------------------------------
+  #
+  # Exchange reads its window through `FindItem`'s `CalendarView`, which is
+  # capped at `MaxEntriesReturned="1000"` (see `Exchange.Requests.find_item/3`)
+  # and answers in ascending start order. The shared `Sync.window/1` of 365
+  # days back and forward therefore spends the cap on history first: a mailbox
+  # with months of past events fills all 1000 slots before the view reaches
+  # next week, and the dashboard shows a few days of future events at most.
+  #
+  # A narrower window is the fix that needs no change to the cap or to the
+  # request. 30 days back still covers the recent past the grid shows, and 180
+  # days forward is the horizon the grid actually needs. Other providers keep
+  # the shared window, so their range is unchanged.
+  #
+  # This does not narrow the availability half: `GetUserAvailability` takes
+  # the same bounds but has no entry cap, and the window it is given here is
+  # the one the cache is replaced over, so the two halves stay consistent.
+  @window_past_days 30
+  @window_future_days 180
+
+  @doc """
+  The window this provider's sync reads, around `now`: #{@window_past_days}
+  days back and #{@window_future_days} forward, narrower than the shared
+  `Sync.window/1` because `FindItem` caps its answer at 1000 entries and
+  keeps the earliest.
+  """
+  @spec window(DateTime.t()) :: {DateTime.t(), DateTime.t()}
+  def window(now \\ Clock.utc_now()),
+    do:
+      {DateTime.add(now, -@window_past_days, :day), DateTime.add(now, @window_future_days, :day)}
+
+  @doc "How many days back this provider's sync reads."
+  @spec window_past_days() :: pos_integer()
+  def window_past_days, do: @window_past_days
+
+  @doc "How many days forward this provider's sync reads."
+  @spec window_future_days() :: pos_integer()
+  def window_future_days, do: @window_future_days
+
+  # --- END CUSTOM PATCH -------------------------------------------------------
+
   # The order is the design, not an accident: availability first, and its
   # failure stops the run before either half of the cache is touched.
   defp sync(integration) do
-    {from, to} = Sync.window()
+    {from, to} = window()
 
     with {:ok, busy_uids} <- refresh_busy_intervals(integration, from, to),
          {:ok, item_uids, item_read} <- refresh_items(integration, from, to) do
