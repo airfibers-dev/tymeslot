@@ -33,6 +33,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentRescheduled do
     Callouts,
     Formatting,
     GroupSession,
+    ITipInvite,
     JoinUrl,
     MeetingComponents,
     MjmlEmail,
@@ -107,6 +108,14 @@ defmodule Tymeslot.Emails.Templates.AppointmentRescheduled do
       |> html_body(html_body)
       |> text_body(build_attendee_text_body(appointment_details, meeting_details, locale))
       |> attachment(update_ics_attachment(appointment_details, locale))
+      |> ITipInvite.put_itip_body(
+        IcsGenerator.generate_ics_request(
+          appointment_details,
+          locale,
+          ics_sequence(appointment_details)
+        ),
+        "REQUEST"
+      )
     end)
   end
 
@@ -177,6 +186,14 @@ defmodule Tymeslot.Emails.Templates.AppointmentRescheduled do
           Map.put(appointment_details, :meeting_url, guest_video_url),
           locale
         )
+      )
+      |> ITipInvite.put_itip_body(
+        IcsGenerator.generate_ics_request(
+          Map.put(appointment_details, :meeting_url, guest_video_url),
+          locale,
+          ics_sequence(appointment_details)
+        ),
+        "REQUEST"
       )
     end)
   end

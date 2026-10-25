@@ -18,6 +18,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentConfirmation do
     Callouts,
     Formatting,
     GroupSession,
+    ITipInvite,
     JoinUrl,
     MeetingComponents,
     MjmlEmail,
@@ -124,6 +125,10 @@ defmodule Tymeslot.Emails.Templates.AppointmentConfirmation do
           "appointment-#{appointment_details.uid}.ics"
         )
       )
+      |> ITipInvite.put_itip_body(
+        IcsGenerator.generate_ics_request(appointment_details, locale),
+        "REQUEST"
+      )
     end)
   end
 
@@ -196,6 +201,13 @@ defmodule Tymeslot.Emails.Templates.AppointmentConfirmation do
           locale,
           "appointment-#{appointment_details.uid}.ics"
         )
+      )
+      |> ITipInvite.put_itip_body(
+        IcsGenerator.generate_ics_request(
+          Map.put(appointment_details, :meeting_url, guest_video_url),
+          locale
+        ),
+        "REQUEST"
       )
     end)
   end

@@ -21,6 +21,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
   alias Tymeslot.Emails.Shared.{
     Buttons,
     Formatting,
+    ITipInvite,
     MeetingComponents,
     MjmlEmail,
     TemplateHelper,
@@ -86,6 +87,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(TemplateHelper.compile_template(mjml_content, organizer_details))
       |> text_body(text_body_seat_given_up(appointment_details, meeting_details, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
+      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
     end)
   end
 
@@ -141,6 +143,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(html_body)
       |> text_body(text_body_attendee(appointment_details, meeting_details, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
+      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
     end)
   end
 
@@ -192,6 +195,7 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(html_body)
       |> text_body(text_body_guest(appointment_details, meeting_details, guest_name, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
+      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
     end)
   end
 
@@ -392,6 +396,15 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       locale,
       "appointment-#{appointment_details.uid}.ics"
     )
+  end
+
+  # The iTIP body of the same cancellation: same UID, and the same bumped
+  # SEQUENCE the attachment carries, so a client that imported the invitation
+  # accepts this as newer than it.
+  defp cancel_ics_body(appointment_details, locale) do
+    current_sequence = Map.get(appointment_details, :ical_sequence) || 0
+
+    IcsGenerator.generate_ics_cancel(appointment_details, current_sequence + 1, locale)
   end
 
   defp text_body_organizer(appointment_details, meeting_details, refund_notice) do

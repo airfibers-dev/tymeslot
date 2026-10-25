@@ -344,6 +344,12 @@ SMTP_TLS_VERIFY=none
 
 Rarely, a firewall or proxy between the container and the relay drops a TLS 1.3 handshake because it does not look like TLS 1.2. The symptom is a connection that times out or closes during the handshake while the same relay works from other mail clients; `SMTP_TLS_MIDDLEBOX_COMPAT=true` restores the TLS 1.2 shape. Leave it off otherwise: relays that do not expect it abort every handshake, and the health check at boot says so explicitly when they do.
 
+**Meeting invites in Outlook (`EMAIL_ITIP_INVITES`)**
+
+By default the booking confirmation, reschedule and cancellation emails carry the appointment as an `.ics` attachment. Gmail and most clients offer to add it to the calendar, but Outlook shows it as a file rather than a meeting with Accept/Decline. Setting `EMAIL_ITIP_INVITES=true` sends those emails — to the booker and any guests, never the organiser's copy — as iTIP meeting requests instead: the message becomes `multipart/alternative` with a `text/calendar; method=REQUEST` (or `method=CANCEL`) part, the shape Outlook reads as an invite.
+
+It is off by default and only works with `EMAIL_ADAPTER=smtp`; with an API adapter the emails keep their attachment. Turn it on only if you want recipient servers to act on the invite: servers that process iMIP (Zimbra, Nextcloud, iCloud) will import the event and may send the attendee their own notification.
+
 **Option 2: a provider API (clearer delivery errors, no SMTP port needed)**
 ```bash
 EMAIL_ADAPTER=postmark
