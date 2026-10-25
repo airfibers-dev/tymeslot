@@ -51,7 +51,7 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       attendee =
         IcsGenerator.generate_ics_request(@details)
         |> ContentLines.split()
-        |> ContentLines.find("ATTENDEE")
+        |> then(&ContentLines.find("ATTENDEE", &1))
 
       assert attendee ==
                "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;" <>
@@ -85,7 +85,7 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       location =
         IcsGenerator.generate_ics_request(@details)
         |> ContentLines.split()
-        |> ContentLines.find("LOCATION")
+        |> then(&ContentLines.find("LOCATION", &1))
 
       assert location == "LOCATION;LANGUAGE=en:Video Call"
     end
@@ -118,7 +118,7 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       attendee =
         IcsGenerator.generate_ics_cancel(@details, 3)
         |> ContentLines.split()
-        |> ContentLines.find("ATTENDEE")
+        |> then(&ContentLines.find("ATTENDEE", &1))
 
       assert attendee ==
                "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;" <>
@@ -149,7 +149,7 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       uids =
         [request, update, cancel]
         |> Enum.map(fn ics ->
-          ics |> ContentLines.split() |> ContentLines.find("UID")
+          ics |> ContentLines.split() |> then(&ContentLines.find("UID", &1))
         end)
 
       assert uids == ["UID:#{@uid}", "UID:#{@uid}", "UID:#{@uid}"]
