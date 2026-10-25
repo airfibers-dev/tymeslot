@@ -64,7 +64,16 @@ defmodule Tymeslot.Mailer.SMTPAdapterEncodedBodyTest do
              |> Tymeslot.Mailer.deliver()
 
     assert_receive {:smtp_relay, {:message, data}}, 2_000
-    assert data == body
+
+    # gen_smtp terminates DATA with its own `<CRLF>.<CRLF>`: the dot-stuffing
+    # pass appends a CRLF to the body and then the terminator, so the relay
+    # captures the body plus one CRLF that was never part of it. The encoded
+    # body already ends in CRLF, so the capture ends in exactly two. Strip
+    # that single framing CRLF and the bytes must match the encoder's output
+    # exactly; nothing else is normalised.
+    assert String.ends_with?(data, "\r\n\r\n")
+    assert data == body <> "\r\n"
+    refute String.ends_with?(body, "\r\n\r\n")
     assert data =~ "Content-Type: text/calendar; charset=\"utf-8\"; method=REQUEST"
     refute data =~ "Content-Disposition: attachment"
   end

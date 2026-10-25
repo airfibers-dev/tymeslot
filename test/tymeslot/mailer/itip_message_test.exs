@@ -97,13 +97,38 @@ defmodule Tymeslot.Mailer.ITipMessageTest do
       refute calendar_part =~ "Content-Disposition"
       refute calendar_part =~ "filename"
 
+      # The body is CRLF-wrapped base64, so the line breaks are part of the
+      # transfer encoding rather than of the payload: strip them before
+      # decoding. That the wrapping is 76 columns of CRLF is asserted on its
+      # own below, so ignoring whitespace here cannot hide a broken encoder.
       encoded =
         calendar_part
         |> String.split("\r\n\r\n", parts: 2)
         |> List.last()
-        |> String.trim()
+        |> String.replace("\r\n", "")
 
       assert Base.decode64!(encoded) == @calendar
+    end
+
+    test "the calendar body is CRLF-wrapped base64 at 76 columns" do
+      message = encode(build_email(), %{calendar: String.duplicate(@calendar, 20)})
+
+      [calendar_part] =
+        Regex.run(
+          ~r/Content-Type: text\/calendar; charset="utf-8"; method=REQUEST\r\n.*?(?=--)/s,
+          message
+        )
+
+      lines =
+        calendar_part
+        |> String.split("\r\n\r\n", parts: 2)
+        |> List.last()
+        |> String.split("\r\n", trim: true)
+
+      assert length(lines) > 1
+      assert Enum.all?(lines, &(String.length(&1) <= 76))
+      assert Enum.all?(Enum.drop(lines, -1), &(String.length(&1) == 76))
+      refute Enum.any?(lines, &String.contains?(&1, "\n"))
     end
 
     test "a cancellation is method=CANCEL on the same tree" do

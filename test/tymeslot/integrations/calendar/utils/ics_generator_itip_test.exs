@@ -9,7 +9,14 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
   use ExUnit.Case, async: true
   @moduletag :emails
 
+  alias Tymeslot.Integrations.Calendar.ICalBuilder.ContentLines
   alias Tymeslot.Integrations.Calendar.IcsGenerator
+
+  # The generator appends the configured email domain to the meeting's uid
+  # (`IcsGenerator` `build_event/2`), and `config/test.exs` sets that domain to
+  # `tymeslot.app`. The same uid must come out of every variant, or a client
+  # treats a reschedule or a cancellation as a different meeting.
+  @uid "itip-uid-123@tymeslot.app"
 
   @details %{
     title: "Discovery Call",
@@ -34,16 +41,28 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       assert ics =~ "METHOD:REQUEST\r\n"
       assert ics =~ "STATUS:CONFIRMED\r\n"
       assert ics =~ "SEQUENCE:2\r\n"
-      assert ics =~ "UID:itip-uid-123\r\n"
+      assert ics =~ "UID:#{@uid}\r\n"
       refute ics =~ "METHOD:PUBLISH"
     end
 
     test "asks the attendee to answer, with the parameters Outlook reads" do
-      ics = IcsGenerator.generate_ics_request(@details)
+      # The property is folded at 75 octets, so it is read back as a logical
+      # content line; that folding still happens is asserted separately below.
+      attendee =
+        IcsGenerator.generate_ics_request(@details)
+        |> ContentLines.split()
+        |> ContentLines.find("ATTENDEE")
 
-      assert ics =~
+      assert attendee ==
                "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;" <>
                  "CN=\"Jane Attendee\":mailto:jane@example.com"
+    end
+
+    test "folds long content lines at 75 octets, with continuation lines" do
+      ics = IcsGenerator.generate_ics_request(@details)
+
+      assert ics =~ "\r\n "
+      assert Enum.all?(String.split(ics, "\r\n"), &(byte_size(&1) <= 75))
     end
 
     test "organizer is not told to skip scheduling" do
@@ -62,8 +81,13 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
       refute ics =~ "TZID"
     end
 
-    test "carries the location" do
-      assert IcsGenerator.generate_ics_request(@details) =~ "LOCATION:Video Call\r\n"
+    test "carries the location, tagged with its language" do
+      location =
+        IcsGenerator.generate_ics_request(@details)
+        |> ContentLines.split()
+        |> ContentLines.find("LOCATION")
+
+      assert location == "LOCATION;LANGUAGE=en:Video Call"
     end
 
     test "an explicit sequence wins over the one on the meeting" do
@@ -85,25 +109,53 @@ defmodule Tymeslot.Integrations.Calendar.Utils.IcsGeneratorITipTest do
 
       assert ics =~ "METHOD:CANCEL\r\n"
       assert ics =~ "STATUS:CANCELLED\r\n"
-      assert ics =~ "UID:itip-uid-123\r\n"
+      assert ics =~ "UID:#{@uid}\r\n"
       assert ics =~ "SEQUENCE:3\r\n"
       refute ics =~ "METHOD:PUBLISH"
     end
 
     test "keeps the attendee line of the request it withdraws" do
-      ics = IcsGenerator.generate_ics_cancel(@details, 3)
+      attendee =
+        IcsGenerator.generate_ics_cancel(@details, 3)
+        |> ContentLines.split()
+        |> ContentLines.find("ATTENDEE")
 
-      assert ics =~ "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE"
-      refute ics =~ "SCHEDULE-AGENT"
+      assert attendee ==
+               "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;" <>
+                 "CN=\"Jane Attendee\":mailto:jane@example.com"
+
+      refute IcsGenerator.generate_ics_cancel(@details, 3) =~ "SCHEDULE-AGENT"
     end
 
     test "shares the UID and times of the request, so a client matches the entry" do
       request = IcsGenerator.generate_ics_request(@details)
       cancel = IcsGenerator.generate_ics_cancel(@details, 3)
 
-      assert request =~ "UID:itip-uid-123\r\n"
-      assert cancel =~ "UID:itip-uid-123\r\n"
+      assert request =~ "UID:#{@uid}\r\n"
+      assert cancel =~ "UID:#{@uid}\r\n"
       assert cancel =~ "DTSTART:20260115T140000Z\r\n"
+    end
+  end
+
+  describe "the UID across a meeting's whole life" do
+    # A confirmation, a reschedule (an update at a bumped sequence) and a
+    # cancellation are three messages about one entry: if the UID moved, the
+    # client would add a second event instead of changing the first.
+    test "request, update and cancellation all carry the same UID" do
+      request = IcsGenerator.generate_ics_request(@details, "en", 2)
+      update = IcsGenerator.generate_ics_request(@details, "en", 3)
+      cancel = IcsGenerator.generate_ics_cancel(@details, 4)
+
+      uids =
+        [request, update, cancel]
+        |> Enum.map(fn ics ->
+          ics |> ContentLines.split() |> ContentLines.find("UID")
+        end)
+
+      assert uids == ["UID:#{@uid}", "UID:#{@uid}", "UID:#{@uid}"]
+
+      assert update =~ "SEQUENCE:3\r\n"
+      assert cancel =~ "SEQUENCE:4\r\n"
     end
   end
 
