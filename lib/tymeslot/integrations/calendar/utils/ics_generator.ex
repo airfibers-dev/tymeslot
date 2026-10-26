@@ -77,6 +77,104 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
     build_attachment(meeting_details, :cancel, sequence, locale, filename)
   end
 
+  # --- CUSTOM PATCH: iTIP request / cancel for booker-facing emails ---------
+  #
+  # The `generate_ics_*` functions above deliberately publish (`METHOD:PUBLISH`)
+  # and tag ORGANIZER/ATTENDEE with `SCHEDULE-AGENT=CLIENT`, so no recipient
+  # server acts on the attachment (issue #41). That is right for a download and
+  # for the organiser's copy, but it is also why Outlook shows the booker a
+  # paperclip instead of Accept/Decline: Outlook only offers the meeting
+  # controls for an iTIP request.
+  #
+  # These two variants are the opt-in exception. They are used by the
+  # booker-facing confirmation, reschedule and cancellation emails when
+  # `EMAIL_ITIP_INVITES=true`, and by nothing else. Every other caller keeps
+  # the publishing functions above, unchanged.
+  #
+  # Times are UTC with a `Z`, so no VTIMEZONE is needed and no client has to
+  # resolve a TZID it may not know.
+
+  @doc """
+  The iCalendar body of an iTIP request (`METHOD:REQUEST`): the organiser asks
+  the attendee, who is expected to answer (`RSVP=TRUE`).
+
+  Same `UID` and `SEQUENCE` as the publishing variant for the same meeting, so
+  a client that saw one supersedes the other rather than adding a second entry.
+  """
+  @spec generate_ics_request(map(), String.t(), non_neg_integer()) :: String.t()
+  def generate_ics_request(meeting_details, locale \\ "en", sequence \\ nil) do
+    sequence = sequence || Map.get(meeting_details, :ical_sequence) || 0
+
+    generate_itip_ics(meeting_details, :request, sequence, locale)
+  end
+
+  @doc """
+  The iCalendar body of an iTIP cancellation (`METHOD:CANCEL`) for the same
+  `UID`, at `sequence` — pass the revision *after* the last request sent, so a
+  client holding the invitation accepts the cancellation as newer.
+  """
+  @spec generate_ics_cancel(map(), non_neg_integer(), String.t()) :: String.t()
+  def generate_ics_cancel(meeting_details, sequence, locale \\ "en") do
+    generate_itip_ics(meeting_details, :cancel, sequence, locale)
+  end
+
+  defp generate_itip_ics(meeting_details, method, sequence, locale) do
+    Gettext.with_locale(TymeslotWeb.Gettext, locale, fn ->
+      meeting_details
+      |> build_event()
+      |> render_itip_vcalendar(method, sequence)
+    end)
+  end
+
+  # Same properties and the same line folding as `render_vcalendar/3`; what
+  # differs is the method, the scheduling parameters on ORGANIZER/ATTENDEE, and
+  # the absence of `SCHEDULE-AGENT=CLIENT`, which would tell the client not to
+  # schedule at all.
+  defp render_itip_vcalendar(event, method, sequence) do
+    lang = language_param()
+    summary_text = Format.escape_text(event.summary || dgettext("emails", "Meeting"))
+    description_text = Format.escape_text(event.description)
+    location_text = Format.escape_text(event.location)
+
+    [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "METHOD:#{itip_method(method)}",
+      "PRODID:-//Tymeslot//Tymeslot 1.0//EN",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      "UID:#{event.uid}",
+      "DTSTAMP:#{Format.format_datetime(DateTime.utc_now())}",
+      "DTSTART#{format_ical_time(event.dtstart)}",
+      "DTEND#{format_ical_time(event.dtend)}",
+      if(is_integer(sequence), do: "SEQUENCE:#{sequence}"),
+      "SUMMARY#{tag_language(summary_text, lang)}:#{summary_text}",
+      "DESCRIPTION#{tag_language(description_text, lang)}:#{description_text}",
+      "LOCATION#{tag_language(location_text, lang)}:#{location_text}",
+      build_conference_line(event.conference),
+      "ORGANIZER#{cn_param(event.organizer_name)}:mailto:#{event.organizer_email}",
+      itip_attendee_line(event.attendee_email, event.attendee_name),
+      "STATUS:#{status_for(method, event.status)}",
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> ContentLines.join()
+  end
+
+  defp itip_method(:request), do: "REQUEST"
+  defp itip_method(:cancel), do: "CANCEL"
+
+  # RFC 5545 §3.2.16: ROLE, PARTSTAT and RSVP are the parameters a client reads
+  # to decide whether to offer Accept/Decline. A cancellation carries the same
+  # attendee line as the request it withdraws.
+  defp itip_attendee_line(email, name) when is_binary(email) and email != "" do
+    "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE#{cn_param(name)}:" <>
+      "mailto:#{Format.sanitize_ical_value(email)}"
+  end
+
+  defp itip_attendee_line(_email, _name), do: nil
+
   defp build_attachment(meeting_details, method, sequence, locale, filename) do
     ics_content = generate_ics_with(meeting_details, method, sequence, locale)
 
@@ -112,7 +210,16 @@ defmodule Tymeslot.Integrations.Calendar.IcsGenerator do
       uid:
         "#{Map.get(meeting_details, :uid, UUID.uuid4())}@#{Application.get_env(:tymeslot, :email)[:domain]}",
       organizer: format_organizer(meeting_details),
+      organizer_name: Map.get(meeting_details, :organizer_name),
+      organizer_email:
+        Map.get(
+          meeting_details,
+          :organizer_email,
+          Application.get_env(:tymeslot, :email)[:from_email]
+        ),
       attendee: format_attendees(meeting_details),
+      attendee_name: Map.get(meeting_details, :attendee_name),
+      attendee_email: Map.get(meeting_details, :attendee_email),
       conference: conference_uri(meeting_details),
       status: Map.get(meeting_details, :status, "CONFIRMED")
     }

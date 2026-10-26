@@ -467,6 +467,18 @@ defmodule Tymeslot.Mailer.SMTPConfigTest do
       File.chmod!(path, 0o000)
       on_exit(fn -> File.rm(path) end)
 
+      # Root ignores the mode bits, so in a root-run container the file is
+      # readable and there is nothing to assert: the premise of the test is
+      # absent, not the behaviour. Skip loudly rather than pass vacuously, and
+      # rerun the suite as a non-root user to exercise it.
+      if File.open(path, [:read]) != {:error, :eacces} do
+        flunk("""
+        cannot exercise an unreadable CA bundle: a 0000 file is still readable, which \
+        happens when the suite runs as root. Run the tests as a non-root user, e.g. \
+        `docker run --user 1000:1000 ...`, to cover this case.
+        """)
+      end
+
       assert_raise ArgumentError, ~r/SMTP CA certificate file not found or not readable/, fn ->
         SMTPConfig.build(
           host: "smtp.example.com",

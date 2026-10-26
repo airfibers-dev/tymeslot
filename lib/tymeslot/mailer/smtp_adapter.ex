@@ -34,6 +34,7 @@ defmodule Tymeslot.Mailer.SMTPAdapter do
   alias Swoosh.Adapters.SMTP.Helpers
   alias Swoosh.Email
   alias Tymeslot.Infrastructure.Tasks
+  alias Tymeslot.Mailer.ITipMessage
 
   # Mirrors gen_smtp_client's `#smtp_client_socket{}` record, so the socket and
   # host are read by field name rather than by tuple position.
@@ -46,7 +47,7 @@ defmodule Tymeslot.Mailer.SMTPAdapter do
     options = SMTP.gen_smtp_config(config)
 
     with {:ok, client} <- open_session(options, config) do
-      message = {Helpers.sender(email), recipients(email), Helpers.body(email, config)}
+      message = {Helpers.sender(email), recipients(email), body(email, config)}
 
       try do
         case :gen_smtp_client.deliver(client, message) do
@@ -118,5 +119,20 @@ defmodule Tymeslot.Mailer.SMTPAdapter do
     |> Enum.concat()
     |> Enum.map(fn {_name, address} -> address end)
     |> Enum.uniq()
+  end
+
+  # --- CUSTOM PATCH: pre-encoded body ---------------------------------------
+  #
+  # An iTIP invitation has to go out as `multipart/alternative` with a
+  # `text/calendar; method=REQUEST` part, which `Helpers.body/2` cannot build
+  # (see `Tymeslot.Mailer.ITipMessage`). When the email carries that body in
+  # its private map, it is sent as-is; everything else is encoded exactly as
+  # before. The session, the timeouts and the error shapes are untouched —
+  # only the bytes handed to gen_smtp differ.
+  defp body(email, config) do
+    case ITipMessage.encoded_body(email) do
+      nil -> Helpers.body(email, config)
+      encoded -> encoded
+    end
   end
 end
