@@ -52,6 +52,10 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider.Payload do
   @doc """
   The body of a new event that carries the Teams meeting itself, for a room
   that cannot live on the booking's own calendar event.
+
+  When the booking names a host (`host_email` on the event details), the host
+  is invited as the event's only attendee, so the meeting reaches their
+  mailbox even though a different account owns the event.
   """
   @spec new_event(window(), map()) :: map()
   def new_event(window, config) do
@@ -59,6 +63,7 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider.Payload do
     |> Map.update!(:subject, &(&1 || @fallback_subject))
     |> event_fields()
     |> Map.merge(online_meeting(config))
+    |> put_host_attendee(config)
   end
 
   @doc """
@@ -96,6 +101,21 @@ defmodule Tymeslot.Integrations.Video.Providers.TeamsProvider.Payload do
   @spec join_url(map()) :: String.t() | nil
   def join_url(event) when is_map(event),
     do: get_in(event, ["onlineMeeting", "joinUrl"]) || event["onlineMeetingUrl"]
+
+  # Invites only the booked host. The booker already gets Tymeslot's own
+  # confirmation email, so they are not added here. With no host email the
+  # body is returned unchanged.
+  defp put_host_attendee(body, config) do
+    case EventDetails.from_provider_config(config).host_email do
+      nil ->
+        body
+
+      email ->
+        Map.put(body, :attendees, [
+          %{emailAddress: %{address: email}, type: "required"}
+        ])
+    end
+  end
 
   defp to_datetime(%DateTime{} = datetime, _field),
     do: {:ok, DateTime.shift_zone!(datetime, "Etc/UTC")}
