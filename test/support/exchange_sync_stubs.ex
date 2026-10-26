@@ -22,6 +22,7 @@ defmodule Tymeslot.ExchangeSyncStubs do
   alias Req.Test, as: ReqTest
   alias Tymeslot.ExchangeCase
   alias Tymeslot.ExchangeFixtures
+  alias Tymeslot.Integrations.Calendar.Exchange.SyncCycle
   alias Tymeslot.Integrations.Calendar.ProviderCalendarEventQueries
   alias Tymeslot.Repo
   alias Tymeslot.Workers.SyncExchangeCalendarWorker
@@ -80,11 +81,11 @@ defmodule Tymeslot.ExchangeSyncStubs do
 
   @doc "The start of the sync window the worker uses."
   @spec window_start() :: DateTime.t()
-  def window_start, do: DateTime.add(DateTime.utc_now(), -365, :day)
+  def window_start, do: elem(SyncCycle.window(), 0)
 
   @doc "The end of the sync window the worker uses."
   @spec window_end() :: DateTime.t()
-  def window_end, do: DateTime.add(DateTime.utc_now(), 365, :day)
+  def window_end, do: elem(SyncCycle.window(), 1)
 
   @doc """
   Puts the last full item read far enough back that the worker forces another
