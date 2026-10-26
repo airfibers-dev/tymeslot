@@ -93,14 +93,23 @@ defmodule Tymeslot.Emails.Shared.ITipInvite do
 
   Both bodies must be present: the alternative tree needs the plain-text part,
   and the HTML part is what the recipient actually reads.
+
+  `details` is the appointment payload the calendar body was built from. A
+  meeting the host manages (confirmed from a poll, `:host_managed`) gets no
+  iTIP part: nobody booked it, so there is no booker to send a request to and
+  no booker's calendar entry for a cancel to withdraw. Its guests keep the
+  ordinary `.ics` attachment, as before.
   """
-  @spec deliverable?(Swoosh.Email.t()) :: boolean()
-  def deliverable?(%Swoosh.Email{text_body: text_body, html_body: html_body})
+  @spec deliverable?(Swoosh.Email.t(), map()) :: boolean()
+  def deliverable?(%Swoosh.Email{text_body: text_body, html_body: html_body}, details)
       when is_binary(text_body) and is_binary(html_body) do
-    text_body != "" and html_body != "" and enabled?() and smtp_adapter?()
+    text_body != "" and html_body != "" and not host_managed?(details) and enabled?() and
+      smtp_adapter?()
   end
 
-  def deliverable?(%Swoosh.Email{}), do: false
+  def deliverable?(%Swoosh.Email{}, _details), do: false
+
+  defp host_managed?(details), do: Map.get(details, :host_managed) == true
 
   @doc """
   Encodes `email` with `calendar` as its third alternative part and returns it
@@ -113,10 +122,10 @@ defmodule Tymeslot.Emails.Shared.ITipInvite do
   failure here is logged and the email is returned untouched: it then takes
   the ordinary Swoosh path with its `.ics` attachment.
   """
-  @spec put_itip_body(Swoosh.Email.t(), String.t(), String.t()) :: Swoosh.Email.t()
-  def put_itip_body(%Swoosh.Email{} = email, calendar, method)
+  @spec put_itip_body(Swoosh.Email.t(), String.t(), String.t(), map()) :: Swoosh.Email.t()
+  def put_itip_body(%Swoosh.Email{} = email, calendar, method, details)
       when method in ["REQUEST", "CANCEL"] do
-    if deliverable?(email) do
+    if deliverable?(email, details) do
       encode_or_keep(email, calendar, method)
     else
       email

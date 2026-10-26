@@ -87,7 +87,11 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(TemplateHelper.compile_template(mjml_content, organizer_details))
       |> text_body(text_body_seat_given_up(appointment_details, meeting_details, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
-      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
+      |> ITipInvite.put_itip_body(
+        cancel_ics_body(appointment_details, locale),
+        "CANCEL",
+        appointment_details
+      )
     end)
   end
 
@@ -143,7 +147,11 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(html_body)
       |> text_body(text_body_attendee(appointment_details, meeting_details, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
-      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
+      |> ITipInvite.put_itip_body(
+        cancel_ics_body(appointment_details, locale),
+        "CANCEL",
+        appointment_details
+      )
     end)
   end
 
@@ -195,7 +203,11 @@ defmodule Tymeslot.Emails.Templates.AppointmentCancellation do
       |> html_body(html_body)
       |> text_body(text_body_guest(appointment_details, meeting_details, guest_name, locale))
       |> attachment(cancel_ics_attachment(appointment_details, locale))
-      |> ITipInvite.put_itip_body(cancel_ics_body(appointment_details, locale), "CANCEL")
+      |> ITipInvite.put_itip_body(
+        cancel_ics_body(appointment_details, locale),
+        "CANCEL",
+        appointment_details
+      )
     end)
   end
 

@@ -127,7 +127,8 @@ defmodule Tymeslot.Emails.Templates.AppointmentConfirmation do
       )
       |> ITipInvite.put_itip_body(
         IcsGenerator.generate_ics_request(appointment_details, locale),
-        "REQUEST"
+        "REQUEST",
+        appointment_details
       )
     end)
   end
@@ -207,7 +208,8 @@ defmodule Tymeslot.Emails.Templates.AppointmentConfirmation do
           Map.put(appointment_details, :meeting_url, guest_video_url),
           locale
         ),
-        "REQUEST"
+        "REQUEST",
+        appointment_details
       )
     end)
   end

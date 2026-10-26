@@ -114,7 +114,8 @@ defmodule Tymeslot.Emails.Templates.AppointmentRescheduled do
           locale,
           ics_sequence(appointment_details)
         ),
-        "REQUEST"
+        "REQUEST",
+        appointment_details
       )
     end)
   end
@@ -193,7 +194,8 @@ defmodule Tymeslot.Emails.Templates.AppointmentRescheduled do
           locale,
           ics_sequence(appointment_details)
         ),
-        "REQUEST"
+        "REQUEST",
+        appointment_details
       )
     end)
   end

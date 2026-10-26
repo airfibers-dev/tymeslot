@@ -69,7 +69,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
         capture_log(fn ->
           refute ITipInvite.enabled?()
 
-          email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST")
+          email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST", %{})
           assert ITipMessage.encoded_body(email) == nil
         end)
 
@@ -78,12 +78,31 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
     end
   end
 
-  describe "put_itip_body/3" do
+  describe "put_itip_body/4" do
+    # A meeting the host manages (confirmed from a poll) has no booker: the
+    # person in its attendee fields is a guest, and there is no booker's
+    # calendar entry for a request to create or a cancel to withdraw. Its
+    # guests keep the ordinary .ics attachment.
+    test "leaves a host-managed meeting's email alone" do
+      System.put_env("EMAIL_ITIP_INVITES", "true")
+      use_smtp_adapter()
+
+      email =
+        ITipInvite.put_itip_body(
+          build_email(),
+          @calendar,
+          "REQUEST",
+          %{host_managed: true}
+        )
+
+      assert ITipMessage.encoded_body(email) == nil
+    end
+
     test "leaves the email alone when the switch is off" do
       System.delete_env("EMAIL_ITIP_INVITES")
       use_smtp_adapter()
 
-      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST")
+      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST", %{})
 
       assert ITipMessage.encoded_body(email) == nil
     end
@@ -92,7 +111,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
       System.put_env("EMAIL_ITIP_INVITES", "true")
       Application.put_env(:tymeslot, Tymeslot.Mailer, adapter: Swoosh.Adapters.Test)
 
-      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST")
+      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST", %{})
 
       assert ITipMessage.encoded_body(email) == nil
     end
@@ -101,7 +120,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
       System.put_env("EMAIL_ITIP_INVITES", "true")
       use_smtp_adapter()
 
-      email = ITipInvite.put_itip_body(%{build_email() | text_body: nil}, @calendar, "REQUEST")
+      email = ITipInvite.put_itip_body(%{build_email() | text_body: nil}, @calendar, "REQUEST", %{})
 
       assert ITipMessage.encoded_body(email) == nil
     end
@@ -110,7 +129,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
       System.put_env("EMAIL_ITIP_INVITES", "true")
       use_smtp_adapter()
 
-      email = ITipInvite.put_itip_body(%{build_email() | html_body: nil}, @calendar, "REQUEST")
+      email = ITipInvite.put_itip_body(%{build_email() | html_body: nil}, @calendar, "REQUEST", %{})
 
       assert ITipMessage.encoded_body(email) == nil
     end
@@ -126,7 +145,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
 
       log =
         capture_log(fn ->
-          email = ITipInvite.put_itip_body(original, nil, "REQUEST")
+          email = ITipInvite.put_itip_body(original, nil, "REQUEST", %{})
 
           assert email == original
           assert ITipMessage.encoded_body(email) == nil
@@ -140,7 +159,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
       System.put_env("EMAIL_ITIP_INVITES", "true")
       use_smtp_adapter()
 
-      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST")
+      email = ITipInvite.put_itip_body(build_email(), @calendar, "REQUEST", %{})
       encoded = ITipMessage.encoded_body(email)
 
       assert encoded =~ "Content-Type: multipart/alternative; boundary="
@@ -152,7 +171,7 @@ defmodule Tymeslot.Emails.Shared.ITipInviteTest do
       System.put_env("EMAIL_ITIP_INVITES", "true")
       use_smtp_adapter()
 
-      email = ITipInvite.put_itip_body(build_email(), @calendar, "CANCEL")
+      email = ITipInvite.put_itip_body(build_email(), @calendar, "CANCEL", %{})
 
       assert ITipMessage.encoded_body(email) =~ "method=CANCEL"
     end
